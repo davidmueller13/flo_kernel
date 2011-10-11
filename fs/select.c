@@ -82,7 +82,7 @@ long select_estimate_accuracy(struct timespec *tv)
 	ktime_get_ts(&now);
 	now = timespec_sub(*tv, now);
 	return min_t(long, __estimate_accuracy(&now),
-		task_get_effective_timer_slack(current));
+			task_get_effective_timer_slack(current));
 }
 
 
