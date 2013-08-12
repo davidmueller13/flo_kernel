@@ -242,13 +242,11 @@ unsigned int dt2w_x[2] = {0, 0};
 unsigned int dt2w_y[2] = {0, 0};
 unsigned int dt2w_2_x[2] = {0, 0};
 unsigned int dt2w_2_y[2] = {0, 0};
-int status[2] = {0,0};
-int dt2w_count = 0;
-int is_suspended = 0;
+//int is_suspended = 0;
 #define S2W_TIMEOUT 50
 #define DT2W_TIMEOUT_MAX 50
 #define DT2W_TIMEOUT_MIN 4
-#define DT2W_DELTA 80
+#define DT2W_DELTA 150
 
 void sweep2wake_setdev(struct input_dev * input_device) {
 	sweep2wake_pwrdev = input_device;
@@ -313,11 +311,9 @@ void sweep2wake_pwrtrigger(void)
 		schedule_work(&sweep2wake_presspwr_work);
 }
 
-void sweep2wake_func(int x, int y, unsigned long time)
+void sweep2wake_func(int x, int y, unsigned long time, int i)
 {
-	//printk("[sweep2wake]: x,y(%d,%d) jiffies:%lu\n", x, y, time);
-
-	if (x < 0){
+	if (x < 0 || i > 0){
 		reset_sweep2wake(1,0);
 		return;
 	}
@@ -1412,7 +1408,7 @@ static void elan_ktf3k_ts_report_data2(struct i2c_client *client, uint8_t *buf)
 						touch_debug(DEBUG_INFO, "[elan] finger id=%d X=%d y=%d size=%d pressure=%d\n", i, x, y, touch_size, pressure_size);
 					/* sweep2wake */
 					if (s2w_switch > 0)
-						sweep2wake_func(x, y, jiffies);
+						sweep2wake_func(x, y, jiffies, i);
 					if (dt2w_switch && scr_suspended)	
 						doubletap2wake_func(x, y);
 					/* end sweep2wake */
@@ -1433,7 +1429,7 @@ static void elan_ktf3k_ts_report_data2(struct i2c_client *client, uint8_t *buf)
 	/* sweep2wake */
 	if (checksum == 99) {
 		if (s2w_switch > 0)
-			sweep2wake_func(-1, -1, jiffies);
+			sweep2wake_func(-1, -1, jiffies, i);
 		if (dt2w_switch && scr_suspended)	
 			doubletap2wake_func(-1, -1);
 	}
@@ -2200,7 +2196,7 @@ static void elan_ktf3k_ts_early_suspend(struct early_suspend *h)
 {
 	struct elan_ktf3k_ts_data *ts;
 	ts = container_of(h, struct elan_ktf3k_ts_data, early_suspend);
-	is_suspended = 1;
+	//is_suspended = 1;
 	elan_ktf3k_ts_suspend(ts->client, PMSG_SUSPEND);
 }
 
@@ -2208,7 +2204,7 @@ static void elan_ktf3k_ts_late_resume(struct early_suspend *h)
 {
 	struct elan_ktf3k_ts_data *ts;
 	ts = container_of(h, struct elan_ktf3k_ts_data, early_suspend);
-	is_suspended = 0;
+	//is_suspended = 0;
 	elan_ktf3k_ts_resume(ts->client);
 }
 #endif
