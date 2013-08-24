@@ -94,7 +94,11 @@ static unsigned long timer_rate = DEFAULT_TIMER_RATE;
  * timer interval.
  */
 #define DEFAULT_ABOVE_HISPEED_DELAY DEFAULT_TIMER_RATE
-static unsigned long above_hispeed_delay_val = DEFAULT_ABOVE_HISPEED_DELAY;
+static unsigned int default_above_hispeed_delay[] = {
+	DEFAULT_ABOVE_HISPEED_DELAY };
+static spinlock_t above_hispeed_delay_lock;
+static unsigned int *above_hispeed_delay = default_above_hispeed_delay;
+static int nabove_hispeed_delay = ARRAY_SIZE(default_above_hispeed_delay);
 
 /* Non-zero means indefinite speed boost active */
 static int boost_val;
@@ -124,17 +128,6 @@ struct cpufreq_governor cpufreq_gov_interactive = {
 	.max_transition_latency = 10000000,
 	.owner = THIS_MODULE,
 };
-
-#define	AID_SYSTEM	(1000)
-static void dbs_chown(void)
-{
-	int ret;
-
-	ret =
-	sys_chown("/sys/devices/system/cpu/cpufreq/interactive/boostpulse",
-		low2highuid(AID_SYSTEM), low2highgid(0));
-	if (ret)
-		pr_err("sys_chown: boostpulse error: %d", ret);
 
 static inline cputime64_t get_cpu_idle_time_jiffy(unsigned int cpu,
 						  cputime64_t *wall)
@@ -757,40 +750,13 @@ static ssize_t store_target_loads(
 	struct kobject *kobj, struct attribute *attr, const char *buf,
 	size_t count)
 {
-	int ret;
-	const char *cp;
+	int ntokens;
 	unsigned int *new_target_loads = NULL;
-	int ntokens = 1;
-	int i;
 	unsigned long flags;
 
-	cp = buf;
-	while ((cp = strpbrk(cp + 1, " :")))
-		ntokens++;
-
-	if (!(ntokens & 0x1))
-		goto err_inval;
-
-	new_target_loads = kmalloc(ntokens * sizeof(unsigned int), GFP_KERNEL);
-	if (!new_target_loads) {
-		ret = -ENOMEM;
-		goto err;
-	}
-
-	cp = buf;
-	i = 0;
-	while (i < ntokens) {
-		if (sscanf(cp, "%u", &new_target_loads[i++]) != 1)
-			goto err_inval;
-
-		cp = strpbrk(cp, " :");
-		if (!cp)
-			break;
-		cp++;
-	}
-
-	if (i != ntokens)
-		goto err_inval;
+	new_target_loads = get_tokenized_data(buf, &ntokens);
+	if (IS_ERR(new_target_loads))
+		return PTR_RET(new_target_loads);
 
 	spin_lock_irqsave(&target_loads_lock, flags);
 	if (target_loads != default_target_loads)
@@ -799,17 +765,55 @@ static ssize_t store_target_loads(
 	ntarget_loads = ntokens;
 	spin_unlock_irqrestore(&target_loads_lock, flags);
 	return count;
-
-err_inval:
-	ret = -EINVAL;
-err:
-	kfree(new_target_loads);
-	return ret;
 }
 
 static struct global_attr target_loads_attr =
 	__ATTR(target_loads, S_IRUGO | S_IWUSR,
 		show_target_loads, store_target_loads);
+
+static ssize_t show_above_hispeed_delay(
+	struct kobject *kobj, struct attribute *attr, char *buf)
+{
+	int i;
+	ssize_t ret = 0;
+	unsigned long flags;
+
+	spin_lock_irqsave(&above_hispeed_delay_lock, flags);
+
+	for (i = 0; i < nabove_hispeed_delay; i++)
+		ret += sprintf(buf + ret, "%u%s", above_hispeed_delay[i],
+			       i & 0x1 ? ":" : " ");
+
+	ret += sprintf(buf + ret, "\n");
+	spin_unlock_irqrestore(&above_hispeed_delay_lock, flags);
+	return ret;
+}
+
+static ssize_t store_above_hispeed_delay(
+	struct kobject *kobj, struct attribute *attr, const char *buf,
+	size_t count)
+{
+	int ntokens;
+	unsigned int *new_above_hispeed_delay = NULL;
+	unsigned long flags;
+
+	new_above_hispeed_delay = get_tokenized_data(buf, &ntokens);
+	if (IS_ERR(new_above_hispeed_delay))
+		return PTR_RET(new_above_hispeed_delay);
+
+	spin_lock_irqsave(&above_hispeed_delay_lock, flags);
+	if (above_hispeed_delay != default_above_hispeed_delay)
+		kfree(above_hispeed_delay);
+	above_hispeed_delay = new_above_hispeed_delay;
+	nabove_hispeed_delay = ntokens;
+	spin_unlock_irqrestore(&above_hispeed_delay_lock, flags);
+	return count;
+
+}
+
+static struct global_attr above_hispeed_delay_attr =
+	__ATTR(above_hispeed_delay, S_IRUGO | S_IWUSR,
+		show_above_hispeed_delay, store_above_hispeed_delay);
 
 static ssize_t show_hispeed_freq(struct kobject *kobj,
 				 struct attribute *attr, char *buf)
@@ -878,28 +882,6 @@ static ssize_t store_min_sample_time(struct kobject *kobj,
 
 static struct global_attr min_sample_time_attr = __ATTR(min_sample_time, 0644,
 		show_min_sample_time, store_min_sample_time);
-
-static ssize_t show_above_hispeed_delay(struct kobject *kobj,
-					struct attribute *attr, char *buf)
-{
-	return sprintf(buf, "%lu\n", above_hispeed_delay_val);
-}
-
-static ssize_t store_above_hispeed_delay(struct kobject *kobj,
-					 struct attribute *attr,
-					 const char *buf, size_t count)
-{
-	int ret;
-	unsigned long val;
-
-	ret = strict_strtoul(buf, 0, &val);
-	if (ret < 0)
-		return ret;
-	above_hispeed_delay_val = val;
-	return count;
-}
-
-define_one_global_rw(above_hispeed_delay);
 
 static ssize_t show_timer_rate(struct kobject *kobj,
 			struct attribute *attr, char *buf)
@@ -1042,9 +1024,9 @@ static struct global_attr io_is_busy_attr = __ATTR(io_is_busy, 0644,
 
 static struct attribute *interactive_attributes[] = {
 	&target_loads_attr.attr,
+	&above_hispeed_delay_attr.attr,
 	&hispeed_freq_attr.attr,
 	&go_hispeed_load_attr.attr,
-	&above_hispeed_delay.attr,
 	&min_sample_time_attr.attr,
 	&timer_rate_attr.attr,
 	&timer_slack.attr,
@@ -1058,6 +1040,26 @@ static struct attribute *interactive_attributes[] = {
 static struct attribute_group interactive_attr_group = {
 	.attrs = interactive_attributes,
 	.name = "interactive",
+};
+
+static int cpufreq_interactive_idle_notifier(struct notifier_block *nb,
+					     unsigned long val,
+					     void *data)
+{
+	switch (val) {
+	case IDLE_START:
+		cpufreq_interactive_idle_start();
+		break;
+	case IDLE_END:
+		cpufreq_interactive_idle_end();
+		break;
+	}
+
+	return 0;
+}
+
+static struct notifier_block cpufreq_interactive_idle_nb = {
+	.notifier_call = cpufreq_interactive_idle_notifier,
 };
 
 static int cpufreq_governor_interactive(struct cpufreq_policy *policy,
