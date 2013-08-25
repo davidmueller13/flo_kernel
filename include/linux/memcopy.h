@@ -222,3 +222,4 @@ static __always_inline void mem_copy_bwd(unsigned long dstp,
     BYTE_COPY_BWD (dstp, srcp, count); 
 } 
 #endif 
+#endif 
