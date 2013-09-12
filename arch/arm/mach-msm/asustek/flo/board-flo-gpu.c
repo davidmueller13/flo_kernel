@@ -93,13 +93,13 @@ static struct msm_bus_vectors grp3d_low_vectors[] = {
 		.src = MSM_BUS_MASTER_GRAPHICS_3D,
 		.dst = MSM_BUS_SLAVE_EBI_CH0,
 		.ab = 0,
-		.ib = KGSL_CONVERT_TO_MBPS(1000),
+		.ib = KGSL_CONVERT_TO_MBPS(640),
 	},
 	{
 		.src = MSM_BUS_MASTER_GRAPHICS_3D_PORT1,
 		.dst = MSM_BUS_SLAVE_EBI_CH0,
 		.ab = 0,
-		.ib = KGSL_CONVERT_TO_MBPS(1000),
+		.ib = KGSL_CONVERT_TO_MBPS(640),
 	},
 };
 
@@ -108,13 +108,13 @@ static struct msm_bus_vectors grp3d_nominal_low_vectors[] = {
 		.src = MSM_BUS_MASTER_GRAPHICS_3D,
 		.dst = MSM_BUS_SLAVE_EBI_CH0,
 		.ab = 0,
-		.ib = KGSL_CONVERT_TO_MBPS(2000),
+		.ib = KGSL_CONVERT_TO_MBPS(1064),
 	},
 	{
 		.src = MSM_BUS_MASTER_GRAPHICS_3D_PORT1,
 		.dst = MSM_BUS_SLAVE_EBI_CH0,
 		.ab = 0,
-		.ib = KGSL_CONVERT_TO_MBPS(2000),
+		.ib = KGSL_CONVERT_TO_MBPS(1064),
 	},
 };
 
@@ -123,17 +123,32 @@ static struct msm_bus_vectors grp3d_nominal_high_vectors[] = {
 		.src = MSM_BUS_MASTER_GRAPHICS_3D,
 		.dst = MSM_BUS_SLAVE_EBI_CH0,
 		.ab = 0,
-		.ib = KGSL_CONVERT_TO_MBPS(2656),
+		.ib = KGSL_CONVERT_TO_MBPS(1600),
 	},
 	{
 		.src = MSM_BUS_MASTER_GRAPHICS_3D_PORT1,
 		.dst = MSM_BUS_SLAVE_EBI_CH0,
 		.ab = 0,
-		.ib = KGSL_CONVERT_TO_MBPS(2656),
+		.ib = KGSL_CONVERT_TO_MBPS(1600),
 	},
 };
 
-static struct msm_bus_vectors grp3d_max_vectors[] = {
+static struct msm_bus_vectors grp3d_fast_low_vectors[] = {
+	{
+		.src = MSM_BUS_MASTER_GRAPHICS_3D,
+		.dst = MSM_BUS_SLAVE_EBI_CH0,
+		.ab = 0,
+		.ib = KGSL_CONVERT_TO_MBPS(3200),
+	},
+	{
+		.src = MSM_BUS_MASTER_GRAPHICS_3D_PORT1,
+		.dst = MSM_BUS_SLAVE_EBI_CH0,
+		.ab = 0,
+		.ib = KGSL_CONVERT_TO_MBPS(3200),
+	},
+};
+
+static struct msm_bus_vectors grp3d_fast_high_vectors[] = {
 	{
 		.src = MSM_BUS_MASTER_GRAPHICS_3D,
 		.dst = MSM_BUS_SLAVE_EBI_CH0,
@@ -145,6 +160,21 @@ static struct msm_bus_vectors grp3d_max_vectors[] = {
 		.dst = MSM_BUS_SLAVE_EBI_CH0,
 		.ab = 0,
 		.ib = KGSL_CONVERT_TO_MBPS(4264),
+	},
+};
+
+static struct msm_bus_vectors grp3d_max_vectors[] = {
+	{
+		.src = MSM_BUS_MASTER_GRAPHICS_3D,
+		.dst = MSM_BUS_SLAVE_EBI_CH0,
+		.ab = 0,
+		.ib = KGSL_CONVERT_TO_MBPS(5336),
+	},
+	{
+		.src = MSM_BUS_MASTER_GRAPHICS_3D_PORT1,
+		.dst = MSM_BUS_SLAVE_EBI_CH0,
+		.ab = 0,
+		.ib = KGSL_CONVERT_TO_MBPS(5336),
 	},
 };
 
@@ -164,6 +194,14 @@ static struct msm_bus_paths grp3d_bus_scale_usecases[] = {
 	{
 		ARRAY_SIZE(grp3d_nominal_high_vectors),
 		grp3d_nominal_high_vectors,
+	},
+	{
+		ARRAY_SIZE(grp3d_fast_low_vectors),
+		grp3d_fast_low_vectors,
+	},
+	{
+		ARRAY_SIZE(grp3d_fast_high_vectors),
+		grp3d_fast_high_vectors,
 	},
 	{
 		ARRAY_SIZE(grp3d_max_vectors),
@@ -204,24 +242,34 @@ static const struct kgsl_iommu_ctx kgsl_3d0_iommu1_ctxs[] = {
 };
 
 static struct kgsl_device_iommu_data kgsl_3d0_iommu_data[] = {
-	{
-		.iommu_ctxs = kgsl_3d0_iommu0_ctxs,
-		.iommu_ctx_count = ARRAY_SIZE(kgsl_3d0_iommu0_ctxs),
-		.physstart = 0x07C00000,
-		.physend = 0x07C00000 + SZ_1M - 1,
-	},
-	{
-		.iommu_ctxs = kgsl_3d0_iommu1_ctxs,
-		.iommu_ctx_count = ARRAY_SIZE(kgsl_3d0_iommu1_ctxs),
-		.physstart = 0x07D00000,
-		.physend = 0x07D00000 + SZ_1M - 1,
-	},
-};
-
+  {
+     .iommu_ctxs = kgsl_3d0_iommu0_ctxs,
+     .iommu_ctx_count = ARRAY_SIZE(kgsl_3d0_iommu0_ctxs),
+     .physstart = 0x07C00000,
+     .physend = 0x07C00000 + SZ_1M - 1,
+   },
+   {
+     .iommu_ctxs = kgsl_3d0_iommu1_ctxs,
+     .iommu_ctx_count = ARRAY_SIZE(kgsl_3d0_iommu1_ctxs),
+     .physstart = 0x07D00000,
+     .physend = 0x07D00000 + SZ_1M - 1,
+   },
+ };
+ 
 static struct kgsl_device_platform_data kgsl_3d0_pdata = {
 	.pwrlevel = {
-		{
+        {
+			.gpu_freq = 533333000,
+			.bus_freq = 6,
+			.io_fraction = 0,
+		},
+        {
 			.gpu_freq = 487500000,
+			.bus_freq = 5,
+			.io_fraction = 0,
+		},
+		{
+			.gpu_freq = 400000000,
 			.bus_freq = 4,
 			.io_fraction = 0,
 		},
@@ -246,7 +294,7 @@ static struct kgsl_device_platform_data kgsl_3d0_pdata = {
 		},
 	},
 	.init_level = 1,
-	.num_levels = 5,
+	.num_levels = KGSL_MAX_PWRLEVELS,
 	.set_grp_async = NULL,
 	.idle_timeout = HZ/10,
 	.nap_allowed = true,
