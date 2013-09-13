@@ -945,12 +945,6 @@ static void elan_ktf3k_ts_report_data(struct i2c_client *client, uint8_t *buf)
 	uint16_t active = 0;
 	uint8_t idx=IDX_FINGER;
 
-	if (interactive_selected)
-	{
-		is_touching = true;
-		freq_boosted_time = ktime_to_ms(ktime_get());
-	}
-
       num = buf[2] & 0xf; 
 	for (i=0; i<34;i++)
 		checksum +=buf[i];
@@ -1082,6 +1076,12 @@ static void elan_ktf3k_ts_work_func(struct work_struct *work)
 	uint8_t buf[NEW_PACKET_SIZE + 4] = { 0 };
 	uint8_t buf1[NEW_PACKET_SIZE] = { 0 };
 	uint8_t buf2[NEW_PACKET_SIZE] = { 0 };
+
+	if (interactive_selected)
+	{
+		is_touching = true;
+		freq_boosted_time = ktime_to_ms(ktime_get());
+	}
 
 	if(work_lock!=0) {
 		touch_debug(DEBUG_INFO, "Firmware update during touch event handling");
