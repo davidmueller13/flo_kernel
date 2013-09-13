@@ -27,6 +27,9 @@
 #include <linux/jiffies.h>
 #include <linux/miscdevice.h>
 #include <linux/debugfs.h>
+#include <linux/cpufreq.h>
+#include <linux/hotplug.h>
+#include <linux/cpu.h>
 
 // for linux 2.6.36.3
 #include <linux/cdev.h>
@@ -88,6 +91,10 @@
 #define IOCTL_I2C_INT  _IOR(ELAN_IOCTLID, 13, int)
 #define IOCTL_RESUME  _IOR(ELAN_IOCTLID, 14, int)
 #define IOCTL_FW_UPDATE _IOR(ELAN_IOCTLID, 22, int) 
+
+/* extern vars */
+bool is_touching;
+u64 freq_boosted_time;
 
 //don't use firmware update
 #define FIRMWARE_UPDATE_WITH_HEADER 1 
@@ -937,6 +944,12 @@ static void elan_ktf3k_ts_report_data(struct i2c_client *client, uint8_t *buf)
 	static uint8_t size_index[10] = {35, 35, 36, 36, 37, 37, 38, 38, 39, 39};
 	uint16_t active = 0;
 	uint8_t idx=IDX_FINGER;
+
+	if (interactive_selected)
+	{
+		is_touching = true;
+		freq_boosted_time = ktime_to_ms(ktime_get());
+	}
 
       num = buf[2] & 0xf; 
 	for (i=0; i<34;i++)
