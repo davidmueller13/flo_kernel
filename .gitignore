@@ -85,5 +85,5 @@ GTAGS
 *~
 \#*#
 
-build.sh
-flash.sh
+build
+packzip
