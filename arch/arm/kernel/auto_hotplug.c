@@ -568,17 +568,7 @@ static void auto_hotplug_late_resume(struct early_suspend *handler)
 
 	flags &= ~EARLYSUSPEND_ACTIVE;
 
-	//stack the deck, let's get moving again
-	history[0] = 500;
-	history[1] = 500;
-	history[3] = 500;
-	history[4] = 500;
-
-	/* restore max frequency */
-	msm_cpufreq_set_freq_limits(0, MSM_CPUFREQ_NO_LIMIT, MSM_CPUFREQ_NO_LIMIT);
-	pr_info("cpulimit: tate resume - restore cpu max frequency.\n");
-
-	schedule_work(&hotplug_online_all_work);
+	schedule_delayed_work_on(0, &hotplug_decision_work, HZ/2);
 }
 
 static struct early_suspend auto_hotplug_suspend = {
