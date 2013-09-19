@@ -34,7 +34,6 @@
 #include <linux/cpu.h>
 #include <linux/workqueue.h>
 #include <linux/sched.h>
-#include <mach/cpufreq.h>
 #include <linux/slab.h>
 
 #ifdef CONFIG_HAS_EARLYSUSPEND
@@ -47,7 +46,7 @@
  * SAMPLING_PERIODS * MIN_SAMPLING_RATE is the minimum
  * load history which will be averaged
  */
-#define DEFAULT_SAMPLING_PERIODS	12
+#define DEFAULT_SAMPLING_PERIODS	10
 
 /*
  * DEFAULT_MIN_SAMPLING_RATE is the base minimum sampling rate
@@ -63,11 +62,9 @@
  * DEFAULT_DISABLE_LOAD_THRESHOLD is the default load at which a CPU is disabled
  * These two are scaled based on num_online_cpus()
  */
-#define DEFAULT_ENABLE_ALL_LOAD_THRESHOLD	(110 * CPUS_AVAILABLE)
-#define DEFAULT_ENABLE_LOAD_THRESHOLD		190
-#define DEFAULT_DISABLE_LOAD_THRESHOLD		95
-
-#define SUSPEND_FREQ 702000
+#define DEFAULT_ENABLE_ALL_LOAD_THRESHOLD	(100 * CPUS_AVAILABLE)
+#define DEFAULT_ENABLE_LOAD_THRESHOLD		200
+#define DEFAULT_DISABLE_LOAD_THRESHOLD		80
 
 /* Control flags */
 unsigned char flags;
@@ -207,9 +204,6 @@ static int set_sampling_periods(const char *val, const struct kernel_param *kp)
 
 	return ret;
 }
-
-static unsigned int suspend_frequency = SUSPEND_FREQ;
-module_param(suspend_frequency, int, 0755);
 
 static int min_online_cpus_set(const char *arg, const struct kernel_param *kp)
 {
@@ -565,10 +559,6 @@ static void auto_hotplug_early_suspend(struct early_suspend *handler)
 		pr_info("auto_hotplug: Offlining CPUs for early suspend\n");
 		schedule_work_on(0, &hotplug_offline_all_work);
 	}
-
-	/* set max suspend frequency */
-	msm_cpufreq_set_freq_limits(0, MSM_CPUFREQ_NO_LIMIT, suspend_frequency);
-	pr_info("cpulimit: early suspend - limit max frequency to: %d\n", suspend_frequency);
 }
 
 static void auto_hotplug_late_resume(struct early_suspend *handler)
