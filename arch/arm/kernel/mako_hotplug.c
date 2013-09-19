@@ -35,7 +35,7 @@
 /*
  * 1000ms = 1 second
  */
-#define MIN_TIME_CPU_ONLINE_MS 1000
+#define MIN_TIME_CPU_ONLINE_MS 5000
 
 struct cpu_stats
 {
@@ -188,7 +188,7 @@ static void __cpuinit mako_hotplug_late_resume(struct early_suspend *handler)
     queue_delayed_work(wq, &decide_hotplug, HZ);
 }
 
-static struct early_suspend mako_hotplug_suspend =
+static struct early_suspend __refdata mako_hotplug_suspend =
 {
     .level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN + 1,
 	.suspend = mako_hotplug_early_suspend,

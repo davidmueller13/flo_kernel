@@ -154,7 +154,7 @@ static void tz_wake(struct kgsl_device *device, struct kgsl_pwrscale *pwrscale)
 static int default_laziness = 5;
 module_param_named(simple_laziness, default_laziness, int, 0664);
 
-static int ramp_up_threshold = 6000;
+static int ramp_up_threshold = 5000;
 module_param_named(simple_ramp_threshold, ramp_up_threshold, int, 0664);
 
 static int laziness;
@@ -283,7 +283,7 @@ static int tz_init(struct kgsl_device *device, struct kgsl_pwrscale *pwrscale)
 	if (pwrscale->priv == NULL)
 		return -ENOMEM;
 
-	priv->governor = TZ_GOVERNOR_ONDEMAND;
+	priv->governor = TZ_GOVERNOR_SIMPLE;
 	spin_lock_init(&tz_lock);
 	kgsl_pwrscale_policy_add_files(device, pwrscale, &tz_attr_group);
 
