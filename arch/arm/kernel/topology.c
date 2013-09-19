@@ -19,21 +19,111 @@
 #include <linux/nodemask.h>
 #include <linux/of.h>
 #include <linux/sched.h>
-#include <linux/cpumask.h>
-#include <linux/cpuset.h>
-#include <linux/notifier.h>
-uuuuu
-#ifdef CONFIG_DEBUG_FS
-#include <linux/debugfs.h>
-#include <linux/uaccess.h>	/* for copy_from_user */
-#endif
+#include <linux/slab.h>
+
 #include <asm/cputype.h>
 #include <asm/topology.h>
 
-#define ARM_FAMILY_MASK 0xFF0FFFF0
+/*
+ * cpu power scale management
+ */
 
-#define MPIDR_SMP_BITMASK (0x3 << 30)
-#define MPIDR_SMP_VALUE (0x2 << 30)
+/*
+ * cpu power table
+ * This per cpu data structure describes the relative capacity of each core.
+ * On a heteregenous system, cores don't have the same computation capacity
+ * and we reflect that difference in the cpu_power field so the scheduler can
+ * take this difference into account during load balance. A per cpu structure
+ * is preferred because each CPU updates its own cpu_power field during the
+ * load balance except for idle cores. One idle core is selected to run the
+ * rebalance_domains for all idle cores and the cpu_power can be updated
+ * during this sequence.
+ */
+
+/* when CONFIG_ARCH_SCALE_INVARIANT_CPU_CAPACITY is in use, a new measure of
+ * compute capacity is available. This is limited to a maximum of 1024 and
+ * scaled between 0 and 1023 according to frequency.
+ * Cores with different base CPU powers are scaled in line with this.
+ * CPU capacity for each core represents a comparable ratio to maximum
+ * achievable core compute capacity for a core in this system.
+ *
+ * e.g.1 If all cores in the system have a base CPU power of 1024 according to
+ * efficiency calculations and are DVFS scalable between 500MHz and 1GHz, the
+ * cores currently at 1GHz will have CPU power of 1024 whilst the cores
+ * currently at 500MHz will have CPU power of 512.
+ *
+ * e.g.2
+ * If core 0 has a base CPU power of 2048 and runs at 500MHz & 1GHz whilst
+ * core 1 has a base CPU power of 1024 and runs at 100MHz and 200MHz, then
+ * the following possibilities are available:
+ *
+ * cpu power\| 1GHz:100Mhz | 1GHz : 200MHz | 500MHz:100MHz | 500MHz:200MHz |
+ * ----------|-------------|---------------|---------------|---------------|
+ *    core 0 |    1024     |     1024      |     512       |     512       |
+ *    core 1 |     256     |      512      |     256       |     512       |
+ *
+ * This information may be useful to the scheduler when load balancing,
+ * so that the compute capacity of the core a task ran on can be baked into
+ * task load histories.
+ */
+static DEFINE_PER_CPU(unsigned long, cpu_scale);
+static DEFINE_PER_CPU(unsigned long, base_cpu_capacity);
+static DEFINE_PER_CPU(unsigned long, invariant_cpu_capacity);
+static DEFINE_PER_CPU(unsigned long, prescaled_cpu_capacity);
+
+static int frequency_invariant_power_enabled = 1;
+
+/* >0=1, <=0=0 */
+void set_invariant_power_enabled(int val)
+{
+	if(val>0)
+		frequency_invariant_power_enabled = 1;
+	else
+		frequency_invariant_power_enabled = 0;
+}
+
+unsigned long arch_scale_freq_power(struct sched_domain *sd, int cpu)
+{
+	return per_cpu(cpu_scale, cpu);
+}
+
+#ifdef CONFIG_ARCH_SCALE_INVARIANT_CPU_CAPACITY
+unsigned long arch_get_cpu_capacity(int cpu)
+{
+	return per_cpu(invariant_cpu_capacity, cpu);
+}
+unsigned long arch_get_max_cpu_capacity(int cpu)
+{
+	return per_cpu(base_cpu_capacity, cpu);
+}
+#endif
+
+static void set_power_scale(unsigned int cpu, unsigned long power)
+{
+	per_cpu(cpu_scale, cpu) = power;
+}
+
+#ifdef CONFIG_OF
+struct cpu_efficiency {
+	const char *compatible;
+	unsigned long efficiency;
+};
+
+/*
+ * Table of relative efficiency of each processors
+ * The efficiency value must fit in 20bit and the final
+ * cpu_scale value must be in the range
+ *   0 < cpu_scale < 3*SCHED_POWER_SCALE/2
+ * in order to return at most 1 when DIV_ROUND_CLOSEST
+ * is used to compute the capacity of a CPU.
+ * Processors that are not defined in the table,
+ * use the default SCHED_POWER_SCALE value for cpu_scale.
+ */
+struct cpu_efficiency table_efficiency[] = {
+	{"arm,cortex-a15", 3891},
+	{"arm,cortex-a7",  2048},
+	{NULL, },
+};
 
 struct cpu_capacity {
 	unsigned long hwid;
@@ -162,65 +252,15 @@ static inline void update_cpu_power(unsigned int cpuid, unsigned int mpidr) {}
  */
 struct cputopo_arm cpu_topology[NR_CPUS];
 
-/*
- * cpu power scale management
- * a per cpu data structure should be better because each cpu is mainly
- * using its own cpu_power even it's not always true because of
- * nohz_idle_balance
- */
-
-static DEFINE_PER_CPU(unsigned int, cpu_scale);
-
-/*
- * cpu topology mask update management
- */
-
-static unsigned int prev_sched_mc_power_savings = 0;
-static unsigned int prev_sched_smt_power_savings = 0;
-
-ATOMIC_NOTIFIER_HEAD(topology_update_notifier_list);
-
-/*
- * Update the cpu power of the scheduler
- */
-unsigned long arch_scale_freq_power(struct sched_domain *sd, int cpu)
+int arch_sd_local_flags(int level)
 {
-	return per_cpu(cpu_scale, cpu);
+	/* Powergate at threading level doesn't make sense */
+	if (level & SD_SHARE_CPUPOWER)
+		return 1*SD_SHARE_POWERDOMAIN;
+
+	return 0*SD_SHARE_POWERDOMAIN;
 }
 
-void set_power_scale(unsigned int cpu, unsigned int power)
-{
-	per_cpu(cpu_scale, cpu) = power;
-}
-
-int topology_register_notifier(struct notifier_block *nb)
-{
-
-	return atomic_notifier_chain_register(
-				&topology_update_notifier_list, nb);
-}
-
-int topology_unregister_notifier(struct notifier_block *nb)
-{
-
-	return atomic_notifier_chain_unregister(
-				&topology_update_notifier_list, nb);
-}
-
-/*
- * sched_domain flag configuration
- */
-/* TODO add a config flag for this function */
-int arch_sd_sibling_asym_packing(void)
-{
-	if (sched_smt_power_savings || sched_mc_power_savings)
-		return SD_ASYM_PACKING;
-	return 0;
-}
-
-/*
- * default topology function
- */
 const struct cpumask *cpu_coregroup_mask(int cpu)
 {
 	return &cpu_topology[cpu].core_sibling;
@@ -250,137 +290,6 @@ void update_siblings_masks(unsigned int cpuid)
 			cpumask_set_cpu(cpu, &cpuid_topo->thread_sibling);
 	}
 	smp_wmb();
-}
-
-/*
- * clear cpu topology masks
- */
-static void clear_cpu_topology_mask(void)
-{
-	unsigned int cpuid;
-	for_each_possible_cpu(cpuid) {
-		struct cputopo_arm *cpuid_topo = &(cpu_topology[cpuid]);
-		cpumask_clear(&cpuid_topo->core_sibling);
-		cpumask_clear(&cpuid_topo->thread_sibling);
-	}
-	smp_wmb();
-}
-
-/*
- * default_cpu_topology_mask set the core and thread mask as described in the
- * ARM ARM
- */
-static void default_cpu_topology_mask(unsigned int cpuid)
-{
-	struct cputopo_arm *cpuid_topo = &cpu_topology[cpuid];
-	unsigned int cpu;
-
-	for_each_possible_cpu(cpu) {
-		struct cputopo_arm *cpu_topo = &cpu_topology[cpu];
-
-		if (cpuid_topo->socket_id == cpu_topo->socket_id) {
-			cpumask_set_cpu(cpuid, &cpu_topo->core_sibling);
-			if (cpu != cpuid)
-				cpumask_set_cpu(cpu,
-					&cpuid_topo->core_sibling);
-
-			if (cpuid_topo->core_id == cpu_topo->core_id) {
-				cpumask_set_cpu(cpuid,
-					&cpu_topo->thread_sibling);
-				if (cpu != cpuid)
-					cpumask_set_cpu(cpu,
-						&cpuid_topo->thread_sibling);
-			}
-		}
-	}
-	smp_wmb();
-}
-
-static void normal_cpu_topology_mask(void)
-{
-	unsigned int cpuid;
-
-	for_each_possible_cpu(cpuid) {
-		default_cpu_topology_mask(cpuid);
-	}
-	smp_wmb();
-}
-
-/*
- * For Cortex-A9 MPcore, we emulate a multi-package topology in power mode.
- * The goal is to gathers tasks on 1 virtual package
- */
-static void power_cpu_topology_mask_CA9(unsigned int cpuid)
-{
-	struct cputopo_arm *cpuid_topo = &cpu_topology[cpuid];
-	unsigned int cpu;
-
-	for_each_possible_cpu(cpu) {
-		struct cputopo_arm *cpu_topo = &cpu_topology[cpu];
-
-		if ((cpuid_topo->socket_id == cpu_topo->socket_id)
-		&& ((cpuid & 0x1) == (cpu & 0x1))) {
-			cpumask_set_cpu(cpuid, &cpu_topo->core_sibling);
-			if (cpu != cpuid)
-				cpumask_set_cpu(cpu,
-					&cpuid_topo->core_sibling);
-
-			if (cpuid_topo->core_id == cpu_topo->core_id) {
-				cpumask_set_cpu(cpuid,
-					&cpu_topo->thread_sibling);
-				if (cpu != cpuid)
-					cpumask_set_cpu(cpu,
-						&cpuid_topo->thread_sibling);
-			}
-		}
-	}
-	smp_wmb();
-}
-
-static int need_topology_update(void)
-{
-	int update;
-
-	update = ((prev_sched_mc_power_savings ^ sched_mc_power_savings)
-	       || (prev_sched_smt_power_savings ^ sched_smt_power_savings));
-
-	prev_sched_mc_power_savings = sched_mc_power_savings;
-	prev_sched_smt_power_savings = sched_smt_power_savings;
-
-	return update;
-}
-
-#define ARM_CORTEX_A9_FAMILY 0x410FC090
-
-/* update_cpu_topology_policy select a cpu topology policy according to the
- * available cores.
- * TODO: The current version assumes that all cores are exactly the same which
- * might not be true. We need to update it to take into account various
- * configuration among which system with different kind of core.
- */
-static int update_cpu_topology_mask(void)
-{
-	unsigned long cpuid;
-
-	if (sched_mc_power_savings == POWERSAVINGS_BALANCE_NONE) {
-		normal_cpu_topology_mask();
-		return 0;
-	}
-
-	for_each_possible_cpu(cpuid) {
-		struct cputopo_arm *cpuid_topo = &(cpu_topology[cpuid]);
-
-		switch (cpuid_topo->id) {
-		case ARM_CORTEX_A9_FAMILY:
-			power_cpu_topology_mask_CA9(cpuid);
-		break;
-		default:
-			default_cpu_topology_mask(cpuid);
-		break;
-		}
-	}
-
-	return 0;
 }
 
 /*
@@ -417,9 +326,6 @@ void store_cpu_topology(unsigned int cpuid)
 			cpuid_topo->core_id = MPIDR_AFFINITY_LEVEL(mpidr, 0);
 			cpuid_topo->socket_id = MPIDR_AFFINITY_LEVEL(mpidr, 1);
 		}
-
-		cpuid_topo->id = read_cpuid_id() & ARM_FAMILY_MASK;
-
 	} else {
 		/*
 		 * This is an uniprocessor system
@@ -430,38 +336,15 @@ void store_cpu_topology(unsigned int cpuid)
 		cpuid_topo->core_id = 0;
 		cpuid_topo->socket_id = -1;
 	}
-	/*
-	 * The core and thread sibling masks can also be updated during the
-	 * call of arch_update_cpu_topology
-	 */
-	default_cpu_topology_mask(cpuid);
+
+	update_siblings_masks(cpuid);
+
+	update_cpu_power(cpuid, mpidr & MPIDR_HWID_BITMASK);
 
 	printk(KERN_INFO "CPU%u: thread %d, cpu %d, socket %d, mpidr %x\n",
 		cpuid, cpu_topology[cpuid].thread_id,
 		cpu_topology[cpuid].core_id,
 		cpu_topology[cpuid].socket_id, mpidr);
-}
-
-/*
- * arch_update_cpu_topology is called by the scheduler before building
- * a new sched_domain hierarchy.
- */
-int arch_update_cpu_topology(void)
-{
-	if (!need_topology_update())
-		return 0;
-
-	/* clear core threads mask */
-	clear_cpu_topology_mask();
-
-	/* set topology mask */
-	update_cpu_topology_mask();
-
-	/* notify the topology update */
-	atomic_notifier_call_chain(&topology_update_notifier_list,
-				TOPOLOGY_POSTCHANGE, (void *)sched_mc_power_savings);
-
-	return 1;
 }
 
 /*
@@ -476,13 +359,13 @@ void __init init_cpu_topology(void)
 	for_each_possible_cpu(cpu) {
 		struct cputopo_arm *cpu_topo = &(cpu_topology[cpu]);
 
-		cpu_topo->id = -1;
 		cpu_topo->thread_id = -1;
 		cpu_topo->core_id =  -1;
 		cpu_topo->socket_id = -1;
 		cpumask_clear(&cpu_topo->core_sibling);
 		cpumask_clear(&cpu_topo->thread_sibling);
-		per_cpu(cpu_scale, cpu) = SCHED_POWER_SCALE;
+
+		set_power_scale(cpu, SCHED_POWER_SCALE);
 	}
 	smp_wmb();
 
@@ -616,93 +499,37 @@ static int cpufreq_policy_callback(struct notifier_block *nb,
        }
        return 0;
 }
-/*
- * debugfs interface for scaling cpu power
- */
 
-#ifdef CONFIG_DEBUG_FS
-static struct dentry *topo_debugfs_root;
-
-static ssize_t dbg_write(struct file *file, const char __user *buf,
-						size_t size, loff_t *off)
-{
-	unsigned int *value = file->f_dentry->d_inode->i_private;
-	char cdata[128];
-	unsigned long tmp;
-
-	if (size < (sizeof(cdata)-1)) {
-		if (copy_from_user(cdata, buf, size))
-			return -EFAULT;
-		cdata[size] = 0;
-		if (!strict_strtoul(cdata, 10, &tmp)) {
-			*value = tmp;
-		}
-		return size;
-	}
-	return -EINVAL;
-}
-
-static ssize_t dbg_read(struct file *file, char __user *buf,
-						size_t size, loff_t *off)
-{
-	unsigned int *value = file->f_dentry->d_inode->i_private;
-	char cdata[128];
-	unsigned int len;
-
-	len = sprintf(cdata, "%u\n", *value);
-	return simple_read_from_buffer(buf, size, off, cdata, len);
-}
-
-static const struct file_operations debugfs_fops = {
-	.read = dbg_read,
-	.write = dbg_write,
+static struct notifier_block cpufreq_notifier = {
+       .notifier_call  = cpufreq_callback,
+};
+static struct notifier_block cpufreq_policy_notifier = {
+       .notifier_call  = cpufreq_policy_callback,
 };
 
-static struct dentry *topo_debugfs_register(unsigned int cpu,
-						struct dentry *parent)
+static int __init register_topology_cpufreq_notifier(void)
 {
-	struct dentry *cpu_d, *d;
-	char cpu_name[16];
+       int ret;
 
-	sprintf(cpu_name, "cpu%u", cpu);
+       /* init safe defaults since there are no policies at registration */
+       for (ret = 0; ret < CONFIG_NR_CPUS; ret++) {
+               /* safe defaults */
+               freq_scale[ret].max = CPUPOWER_FREQSCALE_DEFAULT;
+               per_cpu(base_cpu_capacity, ret) = CPUPOWER_FREQSCALE_DEFAULT;
+               per_cpu(invariant_cpu_capacity, ret) = CPUPOWER_FREQSCALE_DEFAULT;
+               per_cpu(prescaled_cpu_capacity, ret) = CPUPOWER_FREQSCALE_DEFAULT;
+       }
 
-	cpu_d = debugfs_create_dir(cpu_name, parent);
-	if (!cpu_d)
-		return NULL;
+       pr_info("topology: registering cpufreq notifiers for scale-invariant CPU Power\n");
+       ret = cpufreq_register_notifier(&cpufreq_policy_notifier,
+                       CPUFREQ_POLICY_NOTIFIER);
 
-	d = debugfs_create_file("cpu_power", S_IRUGO  | S_IWUGO,
-				cpu_d, &per_cpu(cpu_scale, cpu), &debugfs_fops);
-	if (!d)
-		goto err_out;
+       if (ret != -EINVAL)
+               ret = cpufreq_register_notifier(&cpufreq_notifier,
+                       CPUFREQ_TRANSITION_NOTIFIER);
 
-	return cpu_d;
-
-err_out:
-	debugfs_remove_recursive(cpu_d);
-	return NULL;
+       return ret;
 }
 
-static int __init topo_debugfs_init(void)
-{
-	struct dentry *d;
-	unsigned int cpu;
-
-	d = debugfs_create_dir("cpu_topo", NULL);
-	if (!d)
-		return -ENOMEM;
-	topo_debugfs_root = d;
-
-	for_each_possible_cpu(cpu) {
-		d = topo_debugfs_register(cpu, topo_debugfs_root);
-		if (d == NULL)
-			goto err_out;
-	}
-	return 0;
-
-err_out:
-	debugfs_remove_recursive(topo_debugfs_root);
-	return -ENOMEM;
-}
-
-late_initcall(topo_debugfs_init);
-#endif
+core_initcall(register_topology_cpufreq_notifier);
+#endif /* CONFIG_ARCH_SCALE_INVARIANT_CPU_CAPACITY */
