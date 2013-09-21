@@ -81,33 +81,33 @@ static unsigned long up_threshold;
 /*
  * The minimum amount of time to spend at a frequency before we can ramp down.
  */
-#define DEFAULT_MIN_SAMPLE_TIME (80 * USEC_PER_MSEC)
+#define DEFAULT_MIN_SAMPLE_TIME 40000
 static unsigned long min_sample_time;
 
 /*
  * The sample rate of the timer used to increase frequency
  */
-#define DEFAULT_TIMER_RATE (35 * USEC_PER_MSEC)
+#define DEFAULT_TIMER_RATE 40000
 static unsigned long timer_rate;
 
 /*
  * Wait this long before raising speed above hispeed, by default a single
  * timer interval.
  */
-#define DEFAULT_ABOVE_HISPEED_DELAY DEFAULT_TIMER_RATE
+#define DEFAULT_ABOVE_HISPEED_DELAY 20000
 static unsigned long above_hispeed_delay_val;
 
 /*
  * The CPU will be boosted to this frequency when the screen is
  * touched. input_boost needs to be enabled.
  */
-#define DEFAULT_INPUT_BOOST_FREQ 1350000
+#define DEFAULT_INPUT_BOOST_FREQ 1242000
 static int input_boost_freq;
 
 /*
  * Duration of the touch boost
  */
-#define DEFAULT_INPUT_BOOST_FREQ_DURATION 1500
+#define DEFAULT_INPUT_BOOST_FREQ_DURATION 1000
 static int input_boost_freq_duration;
 
 /*
